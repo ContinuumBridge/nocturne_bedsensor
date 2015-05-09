@@ -1,0 +1,10 @@
+{
+    "exe": "scanner.py", 
+    "protocol": "ble", 
+    "name": "Nocturne Bedsensor", 
+    "url": "https://github.com/ContinuumBridge/nocturne_bedsensor/archive/v0.0.1.tar.gz", 
+    "app_resource": "/api/bridge/v1/app/25", 
+    "version": "0.0.1", 
+    "provider": "ContinuumBridge", 
+    "description": "Adaptor for Designability Project Nocturne Bedsensor"
+}
