@@ -12,12 +12,14 @@ from btle import Peripheral
 import struct
 from twisted.internet import threads
 from twisted.internet import reactor
+from twisted.internet import task
 
 class Adaptor(CbAdaptor):
     def __init__(self, argv):
         self.status =           "ok"
         self.state =            "stopped"
-        self.apps =             {"btle_beacon": []}
+        self.apps =             {"binary_sensor": []}
+        self.minInterval =      1000
         # super's __init__ must be called:
         #super(Adaptor, self).__init__(argv)
         CbAdaptor.__init__(self, argv)
@@ -43,8 +45,8 @@ class Adaptor(CbAdaptor):
             self.sendMessage(msg, a)
 
     def poll(self):
-        c = tag.readCharacteristic(0x24)
-        self.cbLog("poll", "c: " + str(c))
+        c = struct.unpack('<b', self.sensor.readCharacteristic(0x24))[0]
+        #self.cbLog("debug", "poll, c: " + str(c))
         if c == 1:
             b = "on"
         else:
@@ -52,8 +54,8 @@ class Adaptor(CbAdaptor):
         self.sendCharacteristic("binary_sensor", b, time.time())
 
     def initSensor(self):
-        self.sensor = Peripheral(self.address)
-        self.cbLog("initSensor, initialised")
+        self.sensor = Peripheral(self.addr)
+        self.cbLog("debug", "initSensor, initialised")
         t = task.LoopingCall(self.poll)
         t.start(3.0)
 
@@ -68,8 +70,7 @@ class Adaptor(CbAdaptor):
         self.setState("running")
         
     def onAppRequest(self, message):
-        self.cbLog("debug", "onAppRequest: " + str(message))
-        self.cbLog("debug", "onAppRequest, apps: " + str(self.apps))
+        #self.cbLog("debug", "onAppRequest: " + str(message))
         # Switch off anything that already exists for this app
         for a in self.apps:
             if message["id"] in self.apps[a]:
@@ -80,7 +81,7 @@ class Adaptor(CbAdaptor):
                 self.apps[f["characteristic"]].append(message["id"])
                 if f["interval"] < self.minInterval:
                     self.minInterval = f["interval"]
-        self.cbLog("debug", "apps: " + str(self.apps))
+        self.cbLog("debug", "onAppRequest, apps: " + str(self.apps))
 
     def onAppCommand(self, message):
         if "data" not in message:
