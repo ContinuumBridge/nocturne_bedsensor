@@ -45,13 +45,20 @@ class Adaptor(CbAdaptor):
             self.sendMessage(msg, a)
 
     def poll(self):
-        c = struct.unpack('<b', self.sensor.readCharacteristic(0x24))[0]
-        #self.cbLog("debug", "poll, c: " + str(c))
-        if c == 1:
-            b = "on"
+        if not self.doStop:
+            try:
+                c = struct.unpack('<b', self.sensor.readCharacteristic(0x24))[0]
+                #self.cbLog("debug", "poll, c: " + str(c))
+                if c == 1:
+                    b = "on"
+                else:
+                    b = "off"
+                self.sendCharacteristic("binary_sensor", b, time.time())
+            except Exception as ex:
+                self.cbLog("warning", "problem polling device")
+                self.cbLog("warning", "Exception: " + str(type(ex)) + str(ex.args))
         else:
-            b = "off"
-        self.sendCharacteristic("binary_sensor", b, time.time())
+            self.sensor.disconnect()
 
     def initSensor(self):
         self.sensor = Peripheral(self.addr)
