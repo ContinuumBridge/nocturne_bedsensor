@@ -6,20 +6,27 @@
 
 import sys
 import time
+import pexpect
 from cbcommslib import CbAdaptor
 from cbconfig import *
-from btle import Peripheral
-import struct
 from twisted.internet import threads
 from twisted.internet import reactor
 from twisted.internet import task
+
+INIT_TIMEOUT = 16         # Timeout when initialising SensorTag (sec)
+GATT_SLEEP_TIME = 2       # Time to sleep between killing one gatt process & starting another
+POLL_INTERVAL = 3         # How often to poll sensor
 
 class Adaptor(CbAdaptor):
     def __init__(self, argv):
         self.status =           "ok"
         self.state =            "stopped"
-        self.apps =             {"binary_sensor": []}
+        self.apps =             {
+            "binary_sensor": [],
+            "connected": []
+        }
         self.minInterval =      1000
+        self.connected = False
         # super's __init__ must be called:
         #super(Adaptor, self).__init__(argv)
         CbAdaptor.__init__(self, argv)
@@ -30,6 +37,8 @@ class Adaptor(CbAdaptor):
             self.state == "error"
         elif action == "clear_error":
             self.state = "running"
+        else:
+            self.state = action
         msg = {"id": self.id,
                "status": "state",
                "state": self.state}
@@ -44,27 +53,80 @@ class Adaptor(CbAdaptor):
         for a in self.apps[characteristic]:
             self.sendMessage(msg, a)
 
-    def poll(self):
-        if not self.doStop:
-            try:
-                c = struct.unpack('<b', self.sensor.readCharacteristic(0x24))[0]
-                #self.cbLog("debug", "poll, c: " + str(c))
-                if c == 1:
-                    b = "on"
-                else:
-                    b = "off"
-                self.sendCharacteristic("binary_sensor", b, time.time())
-            except Exception as ex:
-                self.cbLog("warning", "problem polling device")
-                self.cbLog("warning", "Exception: " + str(type(ex)) + str(ex.args))
+    def threadLog(self, level,log):
+        reactor.callFromThread(self.cbLog, level, log)
+
+    def initSensorTag(self):
+        self.threadLog("info", "Init")
+        try:
+            cmd = 'gatttool -i ' + self.device + ' -b ' + self.addr + \
+                  ' --interactive'
+            self.threadLog("debug", "cmd: " + str(cmd))
+            self.gatt = pexpect.spawn(cmd)
+        except:
+            self.threadLog("error", "Dead!")
+            self.connected = False
+            self.threadLog("debug", "initSensorTag 1, connected: " + str(self.connected))
+            reactor.callFromThread(self.sendCharacteristic, "connected", self.connected, time.time())
+            return "noConnect"
+        self.gatt.expect('\[LE\]>')
+        self.gatt.sendline('connect')
+        index = self.gatt.expect(['successful', pexpect.TIMEOUT, pexpect.EOF], timeout=INIT_TIMEOUT)
+        if index == 1 or index == 2:
+            # index 2 is not actually a timeout, but something has gone wrong
+            self.connected = False
+            self.threadLog("debug", "initSensorTag 2, connected: " + str(self.connected))
+            reactor.callFromThread(self.sendCharacteristic, "connected", self.connected, time.time())
+            self.gatt.kill(9)
+            # Wait a second just to give SensorTag time to "recover"
+            time.sleep(1)
+            return "timeout"
         else:
-            self.sensor.disconnect()
+            self.connected = True
+            self.threadLog("debug", "initSensorTag 3, connected: " + str(self.connected))
+            reactor.callFromThread(self.sendCharacteristic, "connected", self.connected, time.time())
+            return "ok"
+
+    def poll(self):
+        self.initSensorTag()
+        while not self.doStop:
+            try:
+                line = 'char-read-hnd 0x24'
+                self.gatt.sendline(line)
+                index = self.gatt.expect(['Characteristic value/descriptor:.*', pexpect.TIMEOUT, pexpect.EOF], timeout=POLL_INTERVAL)
+                if index == 1 or index == 2:
+                    status = ""
+                    self.threadLog("warning", "gatt timeout")
+                    # First try to reconnect nicely
+                    self.gatt.sendline('connect')
+                    index = self.gatt.expect(['successful', pexpect.TIMEOUT, pexpect.EOF], timeout=INIT_TIMEOUT)
+                    if index == 1 or index == 2:
+                        self.gatt.kill(9)
+                        time.sleep(GATT_SLEEP_TIME)
+                        status = self.initSensorTag()   
+                        self.threadLog("info", "re-init status: " + status)
+                    else:
+                        self.threadLog("debug", "Successful reconnection without kill")
+                else:
+                    raw = self.gatt.after.split()
+                    c = raw[2]
+                    #self.threadLog("debug", "poll. raw[2]: " + str(raw[2]))
+                    if c == "01":
+                        b = "on"
+                    else:
+                        b = "off"
+                    reactor.callFromThread(self.sendCharacteristic, "binary_sensor", b, time.time())
+            except Exception as ex:
+                self.threadLog("warning", "problem polling device. Type: " + str(type(ex)) + ", exception: " +  str(ex.args))
+            time.sleep(POLL_INTERVAL)
+        try:
+            self.gatt.sendline(disconnect)
+        except Exception as ex:
+            self.threadLog("warning", "poll, unclean exit. Type: " + str(type(ex)) + ", exception: " +  str(ex.args))
 
     def initSensor(self):
-        self.sensor = Peripheral(self.addr)
-        self.cbLog("debug", "initSensor, initialised")
-        t = task.LoopingCall(self.poll)
-        t.start(3.0)
+        self.cbLog("debug", "initSensor, initialising")
+        reactor.callInThread(self.poll)
 
     def onAppInit(self, message):
         resp = {"name": self.name,
@@ -101,7 +163,7 @@ class Adaptor(CbAdaptor):
             May be called again if there is a new configuration, which
             could be because a new app has been added.
         """
-        reactor.callInThread(self.initSensor)
+        self.initSensor()
         self.setState("starting")
 
 if __name__ == '__main__':
