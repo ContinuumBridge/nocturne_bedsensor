@@ -133,6 +133,7 @@ class Adaptor(CbAdaptor):
                 "id": self.id,
                 "status": "ok",
                 "service": [{"characteristic": "binary_sensor",
+                             "type": "inverted",
                              "interval": 3.0}],
                 "content": "service"}
         self.sendMessage(resp, message["id"])

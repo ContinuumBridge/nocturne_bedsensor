@@ -3,8 +3,8 @@
     "protocol": "ble", 
     "name": "BedSensor", 
     "device_resource": "/api/bridge/v1/device/56", 
-    "url": "https://github.com/ContinuumBridge/nocturne_bedsensor/archive/v1.1.0.tar.gz", 
-    "version": "1.1.0", 
+    "url": "https://github.com/ContinuumBridge/nocturne_bedsensor/archive/v1.2.0.tar.gz", 
+    "version": "1.2.0", 
     "provider": "ContinuumBridge", 
     "adaptor_resource": "/api/bridge/v1/adaptor/19", 
     "description": "Adaptor for Designability Project Nocturne Bedsensor"
